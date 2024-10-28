@@ -1,1 +1,1 @@
-export { Stage } from './components/Stage';
+export { Canvas } from './components/Canvas';
