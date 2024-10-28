@@ -19,7 +19,6 @@
     "eslint-plugin-react": "^7.37.2",
     "globals": "^15.11.0",
     "husky": "^8.0.0",
-    "lint-staged": "^15.2.10",
     "parcel": "^2.12.0",
     "prettier": "^3.3.3",
     "process": "^0.11.10",
@@ -34,8 +33,5 @@
     "hooks": {
       "pre-commit": "lint-staged"
     }
-  },
-  "lint-staged": {
-    "src/**/*.{ts,tsx}": "eslint --fix"
   }
 }
