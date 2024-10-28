@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { WebGLRenderer } from '../../core/renderer';
+import { CanvasProvider } from '../../context/CanvasContext';
 
 interface CanvasProps {
   width: number;
@@ -7,27 +8,34 @@ interface CanvasProps {
   children?: React.ReactNode;
 };
 
-export const Canvas: React.FC<CanvasProps> = ({ width, height }) => {
+export function Canvas(props: CanvasProps): JSX.Element {
+  const { width, height, children } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<WebGLRenderer | null>(null);
+  const [renderer, setRenderer] = useState<WebGLRenderer | null>(null);
 
   useEffect(() => {
-    if (canvasRef.current) {
-      rendererRef.current = new WebGLRenderer(canvasRef.current);
-      rendererRef.current.setViewport(width, height);
-      
-      // Пример рендеринга прямоугольника
-      rendererRef.current.clear();
-      rendererRef.current.drawRectangle(100, 100, 200, 100, [1, 0, 0, 1]);
+    if (canvasRef.current && !renderer) {
+      const newRenderer = new WebGLRenderer(canvasRef.current);
+      newRenderer.setViewport(width, height);
+      newRenderer.clear();
+      setRenderer(newRenderer);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (renderer) {
+      renderer.setViewport(width, height);
+      renderer.clear();
     }
   }, [width, height]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      style={{ border: '1px solid black' }}
-    />
+    <canvas ref={canvasRef} width={width} height={height}>
+      {renderer && (
+        <CanvasProvider renderer={renderer}>
+          {children}
+        </CanvasProvider>
+      )}
+    </canvas>
   );
 };

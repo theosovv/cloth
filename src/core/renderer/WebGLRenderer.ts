@@ -28,19 +28,32 @@ export class WebGLRenderer {
       uniform mat4 u_view;
       
       varying vec4 v_color;
+      varying vec2 v_position;
       
       void main() {
         gl_Position = u_projection * u_view * vec4(a_position, 0.0, 1.0);
         v_color = a_color;
+        v_position = a_position;
       }
     `);
 
     const fragmentShader = this.createShader(this.gl!.FRAGMENT_SHADER, `
-      precision mediump float;
+      precision highp float;
       varying vec4 v_color;
+      varying vec2 v_position;
+      
+      uniform vec2 u_center;
+      uniform float u_radius;
+      uniform bool u_isCircle;
       
       void main() {
-        gl_FragColor = v_color;
+        if (u_isCircle) {
+          float distance = length(v_position - u_center);
+          float smoothedAlpha = 1.0 - smoothstep(u_radius - 1.0, u_radius + 1.0, distance);
+          gl_FragColor = vec4(v_color.rgb, v_color.a * smoothedAlpha);
+        } else {
+          gl_FragColor = v_color;
+        }
       }
     `);
 
@@ -168,11 +181,12 @@ export class WebGLRenderer {
 
     const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
     const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+    const isCircleLocation = this.gl!.getUniformLocation(this.program!, 'u_isCircle');
 
     if (!this.projectionMatrix || !this.viewMatrix) {
       throw new Error('Matrices are not initialized');
     }
-
+    this.gl!.uniform1i(isCircleLocation, 0);
     this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
     this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
 
@@ -186,5 +200,61 @@ export class WebGLRenderer {
       0, 0, 1, 0,
       translateX, translateY, 0, 1,
     ]);
+  }
+
+  public drawCircle(x: number, y: number, radius: number, color: [number, number, number, number]): void {
+    const segments = 64;
+    const vertices: number[] = [];
+    const colors: number[] = [];
+
+    vertices.push(x, y);
+    colors.push(...color);
+
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      
+      vertices.push(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+      colors.push(...color);
+    }
+
+    const vertexBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+
+    const colorBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+
+    if (!this.program) {
+      throw new Error('Program is not initialized');
+    }
+
+    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.enableVertexAttribArray(positionLocation);
+    this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.enableVertexAttribArray(colorLocation);
+    this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+    const centerLocation = this.gl!.getUniformLocation(this.program!, 'u_center');
+    const radiusLocation = this.gl!.getUniformLocation(this.program!, 'u_radius');
+    const isCircleLocation = this.gl!.getUniformLocation(this.program!, 'u_isCircle');
+
+    if (!this.projectionMatrix || !this.viewMatrix) {
+      throw new Error('Matrices are not initialized');
+    }
+
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+    this.gl!.uniform2f(centerLocation, x, y);
+    this.gl!.uniform1f(radiusLocation, radius);
+    this.gl!.uniform1i(isCircleLocation, 1);
+    this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
   }
 }
