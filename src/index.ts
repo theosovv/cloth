@@ -1,1 +1,1 @@
-export { Stage } from './components/Stage';
+export { Stage } from './components/Stage'
