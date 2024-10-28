@@ -43,13 +43,15 @@ export class WebGLRenderer {
       varying vec2 v_position;
       
       uniform vec2 u_center;
-      uniform float u_radius;
-      uniform bool u_isCircle;
+      uniform float u_radiusX;
+      uniform float u_radiusY;
+      uniform bool u_isEllipse;
       
       void main() {
-        if (u_isCircle) {
-          float distance = length(v_position - u_center);
-          float smoothedAlpha = 1.0 - smoothstep(u_radius - 1.0, u_radius + 1.0, distance);
+        if (u_isEllipse) {
+          vec2 scaled = (v_position - u_center) / vec2(u_radiusX, u_radiusY);
+          float distance = length(scaled);
+          float smoothedAlpha = 1.0 - smoothstep(0.95, 1.05, distance);
           gl_FragColor = vec4(v_color.rgb, v_color.a * smoothedAlpha);
         } else {
           gl_FragColor = v_color;
@@ -255,6 +257,57 @@ export class WebGLRenderer {
     this.gl!.uniform2f(centerLocation, x, y);
     this.gl!.uniform1f(radiusLocation, radius);
     this.gl!.uniform1i(isCircleLocation, 1);
+    this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
+  }
+
+  public drawEllipse(x: number, y: number, radiusX: number, radiusY: number, color: [number, number, number, number]): void {
+    const segments = 64;
+    const vertices: number[] = [];
+    const colors: number[] = [];
+
+    vertices.push(x, y);
+    colors.push(...color);
+
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+
+      vertices.push(x + Math.cos(angle) * radiusX, y + Math.sin(angle) * radiusY);
+      colors.push(...color);
+    }
+
+    const vertexBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+
+    const colorBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+
+    if (!this.program) {
+      throw new Error('Program is not initialized');
+    }
+
+    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.enableVertexAttribArray(positionLocation);
+    this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.enableVertexAttribArray(colorLocation);
+    this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+
+    if (!this.projectionMatrix || !this.viewMatrix) {
+      throw new Error('Matrices are not initialized');
+    }
+
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+
     this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
   }
 }

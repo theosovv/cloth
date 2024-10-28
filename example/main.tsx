@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Canvas, Rectangle, Circle } from '../src';
+import { Canvas, Rectangle, Circle, Ellipse } from '../src';
 
 const container = document.getElementById('app');
 const root = createRoot(container!);
@@ -19,6 +19,13 @@ root.render(
         y={300} 
         radius={75}
         color={[0, 0, 1, 0.5]} 
+      />
+      <Ellipse
+        x={600}
+        y={100}
+        radiusX={100}
+        radiusY={50}
+        color={[0, 1, 0, 0.5]}
       />
     </Canvas>
   </React.StrictMode>,
