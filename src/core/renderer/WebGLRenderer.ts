@@ -1,12 +1,29 @@
 import earcut from 'earcut';
 import { PathPoint, TextMetrics } from '../../types';
 
+interface Viewport {
+  scale: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export class WebGLRenderer {
   private gl: WebGLRenderingContext | null;
   private program: WebGLProgram | undefined;
   private textProgram: WebGLProgram | undefined;
   private projectionMatrix: Float32Array | undefined;
   private viewMatrix: Float32Array | undefined;
+  private viewport: Viewport = {
+    scale: 1,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
+  private renderQueue: (() => void)[] = [];
+  private bufferCache: Map<string, WebGLBuffer> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this.gl = canvas.getContext('webgl', {
@@ -162,6 +179,15 @@ export class WebGLRenderer {
     this.gl!.blendFunc(this.gl!.SRC_ALPHA, this.gl!.ONE_MINUS_SRC_ALPHA);
   }
 
+  private getBuffer(key: string): WebGLBuffer {
+    let buffer = this.bufferCache.get(key);
+    if (!buffer) {
+      buffer = this.gl!.createBuffer()!;
+      this.bufferCache.set(key, buffer);
+    }
+    return buffer;
+  }
+
   private updateProjectionMatrix(width: number, height: number): void {
     this.projectionMatrix = new Float32Array([
       2 / width, 0, 0, 0,
@@ -171,9 +197,47 @@ export class WebGLRenderer {
     ]);
   }
 
-  public setViewport(width: number, height: number): void {
-    this.gl!.viewport(0, 0, width, height);
+  private scheduleRender(): void {
+    requestAnimationFrame(() => {
+      this.clear();
+      this.render();
+    });
+  }
+
+  public addToRenderQueue(renderFn: () => void): void {
+    this.renderQueue.push(renderFn);
+  }
+
+  public render(): void {
+    for (const renderFn of this.renderQueue) {
+      renderFn();
+    }
+  }
+
+  public setViewport(x: number, y: number, width: number, height: number): void {
+    this.viewport.width = width;
+    this.viewport.height = height;
+    this.gl!.viewport(x, y, width, height);
     this.updateProjectionMatrix(width, height);
+  }
+
+  public pan(deltaX: number, deltaY: number): void {
+    this.viewport.x += deltaX;
+    this.viewport.y += deltaY;
+    this.setTransform(this.viewport.scale, this.viewport.x, this.viewport.y);
+    this.scheduleRender();
+  }
+
+  public zoom(scale: number, centerX: number, centerY: number): void {
+    const oldScale = this.viewport.scale;
+    this.viewport.scale = scale;
+
+    // Корректировка позиции для сохранения центра масштабирования
+    this.viewport.x -= (centerX - this.viewport.x) * (scale / oldScale - 1);
+    this.viewport.y -= (centerY - this.viewport.y) * (scale / oldScale - 1);
+
+    this.setTransform(this.viewport.scale, this.viewport.x, this.viewport.y);
+    this.scheduleRender();
   }
 
   public clear(): void {
@@ -194,20 +258,17 @@ export class WebGLRenderer {
       ...color, ...color, ...color, ...color,
     ]);
 
-    const positionBuffer = this.gl!.createBuffer();
+    const positionBuffer = this.getBuffer('rectanglePosition');
+    const colorBuffer = this.getBuffer('rectangleColor');
+
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.DYNAMIC_DRAW);
 
-    const colorBuffer = this.gl!.createBuffer();
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.DYNAMIC_DRAW);
 
-    if (!this.program) {
-      throw new Error('Program is not initialized');
-    }
-    
-    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
-    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
 
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
     this.gl!.enableVertexAttribArray(positionLocation);
@@ -217,16 +278,11 @@ export class WebGLRenderer {
     this.gl!.enableVertexAttribArray(colorLocation);
     this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
 
-    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
-    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
-    const isCircleLocation = this.gl!.getUniformLocation(this.program!, 'u_isCircle');
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
 
-    if (!this.projectionMatrix || !this.viewMatrix) {
-      throw new Error('Matrices are not initialized');
-    }
-    this.gl!.uniform1i(isCircleLocation, 0);
-    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
-    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
 
     this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
   }
@@ -238,6 +294,22 @@ export class WebGLRenderer {
       0, 0, 1, 0,
       translateX, translateY, 0, 1,
     ]);
+
+    if (this.program) {
+      this.gl!.useProgram(this.program);
+      const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+      this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+    }
+
+    if (this.textProgram) {
+      this.gl!.useProgram(this.textProgram);
+      const viewLocation = this.gl!.getUniformLocation(this.textProgram, 'u_view');
+      this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+    }
+
+    if (this.program) {
+      this.gl!.useProgram(this.program);
+    }
   }
 
   public drawCircle(x: number, y: number, radius: number, color: [number, number, number, number]): void {
@@ -251,27 +323,23 @@ export class WebGLRenderer {
 
     for (let i = 0; i <= segments; i++) {
       const angle = (i / segments) * Math.PI * 2;
-      
       vertices.push(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
       colors.push(...color);
     }
 
-    const vertexBuffer = this.gl!.createBuffer();
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+    const positionBuffer = this.getBuffer('circlePosition');
+    const colorBuffer = this.getBuffer('circleColor');
 
-    const colorBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.DYNAMIC_DRAW);
+
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.DYNAMIC_DRAW);
 
-    if (!this.program) {
-      throw new Error('Program is not initialized');
-    }
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
 
-    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
-    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
-
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
     this.gl!.enableVertexAttribArray(positionLocation);
     this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
 
@@ -279,21 +347,12 @@ export class WebGLRenderer {
     this.gl!.enableVertexAttribArray(colorLocation);
     this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
 
-    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
-    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
-    const centerLocation = this.gl!.getUniformLocation(this.program!, 'u_center');
-    const radiusLocation = this.gl!.getUniformLocation(this.program!, 'u_radius');
-    const isCircleLocation = this.gl!.getUniformLocation(this.program!, 'u_isCircle');
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
 
-    if (!this.projectionMatrix || !this.viewMatrix) {
-      throw new Error('Matrices are not initialized');
-    }
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
 
-    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
-    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
-    this.gl!.uniform2f(centerLocation, x, y);
-    this.gl!.uniform1f(radiusLocation, radius);
-    this.gl!.uniform1i(isCircleLocation, 1);
     this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
   }
 
@@ -302,50 +361,45 @@ export class WebGLRenderer {
     const segments = 64;
     const vertices: number[] = [];
     const colors: number[] = [];
-
+  
     vertices.push(x, y);
     colors.push(...color);
-
+  
     for (let i = 0; i <= segments; i++) {
       const angle = (i / segments) * Math.PI * 2;
-
-      vertices.push(x + Math.cos(angle) * radiusX, y + Math.sin(angle) * radiusY);
+      vertices.push(
+        x + Math.cos(angle) * radiusX,
+        y + Math.sin(angle) * radiusY,
+      );
       colors.push(...color);
     }
-
-    const vertexBuffer = this.gl!.createBuffer();
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
-
-    const colorBuffer = this.gl!.createBuffer();
+  
+    const positionBuffer = this.getBuffer('ellipsePosition');
+    const colorBuffer = this.getBuffer('ellipseColor');
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.DYNAMIC_DRAW);
+  
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
-
-    if (!this.program) {
-      throw new Error('Program is not initialized');
-    }
-
-    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
-    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
-
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.DYNAMIC_DRAW);
+  
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
     this.gl!.enableVertexAttribArray(positionLocation);
     this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
-
+  
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
     this.gl!.enableVertexAttribArray(colorLocation);
     this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
-
-    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
-    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
-
-    if (!this.projectionMatrix || !this.viewMatrix) {
-      throw new Error('Matrices are not initialized');
-    }
-
-    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
-    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
-
+  
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
+  
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
+  
     this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
   }
 
@@ -366,28 +420,22 @@ export class WebGLRenderer {
     ]);
 
     const colors = new Float32Array([
-      ...color,
-      ...color,
-      ...color,
-      ...color,
+      ...color, ...color, ...color, ...color,
     ]);
 
-    const vertexBuffer = this.gl!.createBuffer();
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
+    const positionBuffer = this.getBuffer('linePosition');
+    const colorBuffer = this.getBuffer('lineColor');
 
-    const colorBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.DYNAMIC_DRAW);
+
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.DYNAMIC_DRAW);
 
-    if (!this.program) {
-      throw new Error('Program is not initialized');
-    }
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
 
-    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
-    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
-
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, positionBuffer);
     this.gl!.enableVertexAttribArray(positionLocation);
     this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
 
@@ -395,15 +443,11 @@ export class WebGLRenderer {
     this.gl!.enableVertexAttribArray(colorLocation);
     this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
 
-    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
-    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
 
-    if (!this.projectionMatrix || !this.viewMatrix) {
-      throw new Error('Matrices are not initialized');
-    }
-
-    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
-    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
 
     this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
   }
@@ -436,31 +480,28 @@ export class WebGLRenderer {
         colors.push(...fillColor);
       }
   
-      const vertexBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+      const fillPositionBuffer = this.getBuffer('pathFillPosition');
+      const fillColorBuffer = this.getBuffer('pathFillColor');
   
-      const colorBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.DYNAMIC_DRAW);
   
-      if (!this.program) {
-        throw new Error('Program is not initialized');
-      }
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.DYNAMIC_DRAW);
   
-      const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
-      const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
+      const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+      const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
   
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
       this.gl!.enableVertexAttribArray(positionLocation);
       this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
   
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
       this.gl!.enableVertexAttribArray(colorLocation);
       this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
   
-      const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
-      const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+      const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+      const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
   
       this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
       this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
@@ -538,22 +579,23 @@ export class WebGLRenderer {
       );
     }
   
-    const vertexBuffer = this.gl!.createBuffer();
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+    const strokePositionBuffer = this.getBuffer('pathStrokePosition');
+    const strokeColorBuffer = this.getBuffer('pathStrokeColor');
   
-    const colorBuffer = this.gl!.createBuffer();
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.DYNAMIC_DRAW);
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.DYNAMIC_DRAW);
   
     const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
     const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
   
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
     this.gl!.enableVertexAttribArray(positionLocation);
     this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
   
-    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
     this.gl!.enableVertexAttribArray(colorLocation);
     this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
   
@@ -577,52 +619,109 @@ export class WebGLRenderer {
     thickness: number = 1,
   ): void {
     this.gl!.useProgram(this.program!);
+    
     if (fillColor) {
       const vertices = new Float32Array([
         x1, y1,
         x2, y2,
         x3, y3,
       ]);
-
+  
       const colors = new Float32Array([
         ...fillColor, ...fillColor, ...fillColor,
       ]);
-
-      const vertexBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
-
-      const colorBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.STATIC_DRAW);
-
+  
+      const fillPositionBuffer = this.getBuffer('triangleFillPosition');
+      const fillColorBuffer = this.getBuffer('triangleFillColor');
+  
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.DYNAMIC_DRAW);
+  
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.DYNAMIC_DRAW);
+  
       const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
       const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
-
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+  
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
       this.gl!.enableVertexAttribArray(positionLocation);
       this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
-
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+  
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
       this.gl!.enableVertexAttribArray(colorLocation);
       this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
-
+  
       const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
       const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
-
+  
       this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
       this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
-
+  
       this.gl!.drawArrays(this.gl!.TRIANGLES, 0, 3);
     }
-
+  
+    // Draw stroke
     const points: PathPoint[] = [
       { x: x1, y: y1, moveTo: true },
       { x: x2, y: y2 },
       { x: x3, y: y3 },
     ];
-
-    this.drawPath(points, strokeColor, null, thickness, true);
+  
+    const strokeVertices: number[] = [];
+    const strokeColors: number[] = [];
+  
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+  
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+  
+      const nx = -dy / length * (thickness / 2);
+      const ny = dx / length * (thickness / 2);
+  
+      strokeVertices.push(
+        p1.x + nx, p1.y + ny,
+        p1.x - nx, p1.y - ny,
+        p2.x + nx, p2.y + ny,
+        p2.x - nx, p2.y - ny,
+      );
+  
+      strokeColors.push(
+        ...strokeColor, ...strokeColor, ...strokeColor, ...strokeColor,
+      );
+    }
+  
+    const strokePositionBuffer = this.getBuffer('triangleStrokePosition');
+    const strokeColorBuffer = this.getBuffer('triangleStrokeColor');
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(strokeVertices), this.gl!.DYNAMIC_DRAW);
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(strokeColors), this.gl!.DYNAMIC_DRAW);
+  
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
+    this.gl!.enableVertexAttribArray(positionLocation);
+    this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+  
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
+    this.gl!.enableVertexAttribArray(colorLocation);
+    this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+  
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
+  
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
+  
+    for (let i = 0; i < 3; i++) {
+      this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, i * 4, 4);
+    }
   }
 
   public drawPolygon(
@@ -632,14 +731,10 @@ export class WebGLRenderer {
     thickness: number = 2,
   ): void {
     this.gl!.useProgram(this.program!);
-    if (points.length < 3) {
-      return;
-    }
-
+    
     if (fillColor) {
       const flatPoints: number[] = points.map(p => [p.x, p.y]).flat();
       const indices = earcut(flatPoints);
-
       const vertices: number[] = [];
       const colors: number[] = [];
 
@@ -651,26 +746,23 @@ export class WebGLRenderer {
         colors.push(...fillColor);
       }
 
-      const vertexBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+      const fillPositionBuffer = this.getBuffer('polygonFillPosition');
+      const fillColorBuffer = this.getBuffer('polygonFillColor');
 
-      const colorBuffer = this.gl!.createBuffer();
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
-      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.DYNAMIC_DRAW);
 
-      if (!this.program) {
-        throw new Error('Program is not initialized');
-      }
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.DYNAMIC_DRAW);
 
       const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
       const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
 
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillPositionBuffer);
       this.gl!.enableVertexAttribArray(positionLocation);
       this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
 
-      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, fillColorBuffer);
       this.gl!.enableVertexAttribArray(colorLocation);
       this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
 
@@ -683,13 +775,62 @@ export class WebGLRenderer {
       this.gl!.drawArrays(this.gl!.TRIANGLES, 0, indices.length);
     }
 
-    const pathPoints: PathPoint[] = points.map((p, i) => ({
-      x: p.x,
-      y: p.y,
-      moveTo: i === 0,
-    }));
+    // Draw stroke
+    const strokeVertices: number[] = [];
+    const strokeColors: number[] = [];
 
-    this.drawPath(pathPoints, strokeColor, null, thickness, true);
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+
+      const nx = -dy / length * (thickness / 2);
+      const ny = dx / length * (thickness / 2);
+
+      strokeVertices.push(
+        p1.x + nx, p1.y + ny,
+        p1.x - nx, p1.y - ny,
+        p2.x + nx, p2.y + ny,
+        p2.x - nx, p2.y - ny,
+      );
+
+      strokeColors.push(
+        ...strokeColor, ...strokeColor, ...strokeColor, ...strokeColor,
+      );
+    }
+
+    const strokePositionBuffer = this.getBuffer('polygonStrokePosition');
+    const strokeColorBuffer = this.getBuffer('polygonStrokeColor');
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(strokeVertices), this.gl!.DYNAMIC_DRAW);
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(strokeColors), this.gl!.DYNAMIC_DRAW);
+
+    const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokePositionBuffer);
+    this.gl!.enableVertexAttribArray(positionLocation);
+    this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, strokeColorBuffer);
+    this.gl!.enableVertexAttribArray(colorLocation);
+    this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+    const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
+
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
+
+    for (let i = 0; i < points.length; i++) {
+      this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, i * 4, 4);
+    }
   }
 
   public drawText(
@@ -716,52 +857,55 @@ export class WebGLRenderer {
     } = options;
   
     const textCanvas = document.createElement('canvas');
-    const textContext = textCanvas.getContext('2d');
+    const textContext = textCanvas.getContext('2d', { willReadFrequently: true });
   
     if (!textContext) {
       throw new Error('Failed to get 2D context');
     }
   
-    // Настройка canvas для текста
+    // Set canvas size with padding for better text quality
     textContext.font = `${fontSize}px ${fontFamily}`;
     const metrics = textContext.measureText(text);
     const textWidth = Math.ceil(metrics.width);
     const textHeight = fontSize;
   
-    textCanvas.width = textWidth;
-    textCanvas.height = textHeight;
+    textCanvas.width = textWidth * 2;  // Double the size for better quality
+    textCanvas.height = textHeight * 2;
   
-    // Перенастройка после изменения размера
-    textContext.font = `${fontSize}px ${fontFamily}`;
+    // Reset context after resize and set text properties
+    textContext.font = `${fontSize * 2}px ${fontFamily}`; // Double size for better quality
     textContext.textAlign = textAlign;
     textContext.textBaseline = baseline;
     textContext.fillStyle = `rgba(${color[0] * 255}, ${color[1] * 255}, ${color[2] * 255}, ${color[3]})`;
   
-    // Вычисление позиции текста
+    // Position calculation
     let xPos = 0;
     switch (textAlign) {
     case 'center':
-      xPos = textWidth / 2;
+      xPos = textCanvas.width / 2;
       break;
     case 'right':
-      xPos = textWidth;
+      xPos = textCanvas.width;
       break;
     }
   
     let yPos = 0;
     switch (baseline) {
     case 'middle':
-      yPos = textHeight / 2;
+      yPos = textCanvas.height / 2;
       break;
     case 'bottom':
-      yPos = textHeight;
+      yPos = textCanvas.height;
       break;
     }
   
-    // Отрисовка текста на canvas
     textContext.fillText(text, xPos, yPos);
   
-    // Создание и настройка текстуры
+    // Use cached buffers for vertices and texture coordinates
+    const vertexBuffer = this.getBuffer('textVertex');
+    const texCoordBuffer = this.getBuffer('textTexCoord');
+  
+    // Create and setup texture
     const texture = this.gl!.createTexture();
     this.gl!.activeTexture(this.gl!.TEXTURE0);
     this.gl!.bindTexture(this.gl!.TEXTURE_2D, texture);
@@ -780,7 +924,7 @@ export class WebGLRenderer {
     this.gl!.texParameteri(this.gl!.TEXTURE_2D, this.gl!.TEXTURE_WRAP_S, this.gl!.CLAMP_TO_EDGE);
     this.gl!.texParameteri(this.gl!.TEXTURE_2D, this.gl!.TEXTURE_WRAP_T, this.gl!.CLAMP_TO_EDGE);
   
-    // Создание вершинных буферов
+    // Setup vertices and texture coordinates
     const vertices = new Float32Array([
       x, y,
       x + textWidth, y,
@@ -795,17 +939,16 @@ export class WebGLRenderer {
       1.0, 1.0,
     ]);
   
-    // Настройка буферов и атрибутов
     this.gl!.useProgram(this.textProgram!);
   
-    const vertexBuffer = this.gl!.createBuffer();
+    // Update buffers
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.DYNAMIC_DRAW);
   
-    const texCoordBuffer = this.gl!.createBuffer();
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, texCoordBuffer);
-    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, texCoords, this.gl!.STATIC_DRAW);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, texCoords, this.gl!.DYNAMIC_DRAW);
   
+    // Set attributes and uniforms
     const positionLocation = this.gl!.getAttribLocation(this.textProgram!, 'a_position');
     const texCoordLocation = this.gl!.getAttribLocation(this.textProgram!, 'a_texCoord');
   
@@ -817,7 +960,6 @@ export class WebGLRenderer {
     this.gl!.enableVertexAttribArray(texCoordLocation);
     this.gl!.vertexAttribPointer(texCoordLocation, 2, this.gl!.FLOAT, false, 0, 0);
   
-    // Установка униформ
     const projectionLocation = this.gl!.getUniformLocation(this.textProgram!, 'u_projection');
     const viewLocation = this.gl!.getUniformLocation(this.textProgram!, 'u_view');
     const textureLocation = this.gl!.getUniformLocation(this.textProgram!, 'u_texture');
@@ -826,21 +968,33 @@ export class WebGLRenderer {
     this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
     this.gl!.uniform1i(textureLocation, 0);
   
-    // Отрисовка
+    // Draw
     this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
   
-    // Очистка
+    // Cleanup
     this.gl!.bindTexture(this.gl!.TEXTURE_2D, null);
     this.gl!.deleteTexture(texture);
-    this.gl!.deleteBuffer(vertexBuffer);
-    this.gl!.deleteBuffer(texCoordBuffer);
   
-    // Возврат к основной программе
+    // Return to main program
     this.gl!.useProgram(this.program!);
   
     return {
       width: textWidth,
       height: textHeight,
+    };
+  }
+
+  public screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    return {
+      x: (screenX - this.viewport.x) / this.viewport.scale,
+      y: (screenY - this.viewport.y) / this.viewport.scale,
+    };
+  }
+
+  public worldToScreen(worldX: number, worldY: number): { x: number, y: number } {
+    return {
+      x: worldX * this.viewport.scale + this.viewport.x,
+      y: worldY * this.viewport.scale + this.viewport.y,
     };
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 import { PathPoint } from '../../types';
 
 interface PathProps {
@@ -19,10 +19,16 @@ export function Path(props: PathProps): null {
     closed = false,
   } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawPath(points, strokeColor, fillColor || null, thickness, closed);
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawPath(points, strokeColor, fillColor || null, thickness, closed);
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [points, strokeColor, fillColor, thickness, closed, renderer]);
 

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface LineProps {
   x1: number;
@@ -13,10 +13,16 @@ interface LineProps {
 export function Line(props: LineProps): null {
   const { x1, y1, x2, y2, color, thickness = 2 } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawLine(x1, y1, x2, y2, color, thickness);
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawLine(x1, y1, x2, y2, color, thickness);
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [x1, y1, x2, y2, color, thickness, renderer]);
 

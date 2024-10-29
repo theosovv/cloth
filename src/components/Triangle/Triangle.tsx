@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface TriangleProps {
   x1: number;
@@ -21,17 +21,23 @@ export function Triangle(props: TriangleProps): null {
     thickness = 2,
   } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawTriangle(
-        x1, y1,
-        x2, y2,
-        x3, y3,
-        strokeColor,
-        fillColor || null,
-        thickness,
-      );
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawTriangle(
+          x1, y1,
+          x2, y2,
+          x3, y3,
+          strokeColor,
+          fillColor || null,
+          thickness,
+        );
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [x1, y1, x2, y2, x3, y3, strokeColor, fillColor, thickness, renderer]);
 
