@@ -584,4 +584,70 @@ export class WebGLRenderer {
 
     this.drawPath(points, strokeColor, null, thickness, true);
   }
+
+  public drawPolygon(
+    points: { x: number; y: number }[],
+    strokeColor: [number, number, number, number],
+    fillColor: [number, number, number, number] | null = null,
+    thickness: number = 2,
+  ): void {
+    if (points.length < 3) {
+      return;
+    }
+
+    if (fillColor) {
+      const flatPoints: number[] = points.map(p => [p.x, p.y]).flat();
+      const indices = earcut(flatPoints);
+
+      const vertices: number[] = [];
+      const colors: number[] = [];
+
+      for (const index of indices) {
+        vertices.push(
+          flatPoints[index * 2],
+          flatPoints[index * 2 + 1],
+        );
+        colors.push(...fillColor);
+      }
+
+      const vertexBuffer = this.gl!.createBuffer();
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(vertices), this.gl!.STATIC_DRAW);
+
+      const colorBuffer = this.gl!.createBuffer();
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, new Float32Array(colors), this.gl!.STATIC_DRAW);
+
+      if (!this.program) {
+        throw new Error('Program is not initialized');
+      }
+
+      const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+      const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
+
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.enableVertexAttribArray(positionLocation);
+      this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.enableVertexAttribArray(colorLocation);
+      this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+      const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+      const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
+
+      this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+      this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
+
+      this.gl!.drawArrays(this.gl!.TRIANGLES, 0, indices.length);
+    }
+
+    const pathPoints: PathPoint[] = points.map((p, i) => ({
+      x: p.x,
+      y: p.y,
+      moveTo: i === 0,
+    }));
+
+    this.drawPath(pathPoints, strokeColor, null, thickness, true);
+  }
 }
