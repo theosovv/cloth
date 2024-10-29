@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Canvas, Polygon } from '../src';
+import { Canvas, Polygon, Text } from '../src';
 
 const points = [
   { x: 100, y: 100 },
@@ -21,6 +21,16 @@ root.render(
         strokeColor={[0, 0, 0, 1]}
         fillColor={[0, 0.5, 1, 0.5]}
         thickness={2}
+      />
+      <Text 
+        text="Hello, WebGL!"
+        x={100}
+        y={100}
+        color={[0, 0, 0, 1]}
+        fontSize={24}
+        fontFamily="Arial"
+        textAlign="center"
+        baseline="middle"
       />
     </Canvas>
   </React.StrictMode>,
