@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface Point {
   x: number;
@@ -21,15 +21,21 @@ export function Polygon(props: PolygonProps): null {
     thickness = 2,
   } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawPolygon(
-        points,
-        strokeColor,
-        fillColor || null,
-        thickness,
-      );
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawPolygon(
+          points,
+          strokeColor,
+          fillColor || null,
+          thickness,
+        );
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [points, strokeColor, fillColor, thickness, renderer]);
 

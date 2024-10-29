@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface RectangleProps {
     x: number;
@@ -12,10 +12,16 @@ interface RectangleProps {
 export function Rectangle(props: RectangleProps): null {
   const { x, y, width, height, color } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawRectangle(x, y, width, height, color);
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawRectangle(x, y, width, height, color);
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [x, y, width, height, color, renderer]);
 

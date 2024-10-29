@@ -1,17 +1,36 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import { WebGLRenderer } from '../core/renderer';
 
-export const CanvasContext = React.createContext<{renderer: WebGLRenderer | null;}>({ renderer: null });
+interface CanvasContextType {
+  renderer: WebGLRenderer;
+  addToRenderQueue: (renderFn: () => void) => void;
+}
 
-export const CanvasProvider: React.FC<{ children: React.ReactNode; renderer: WebGLRenderer | null }> = ({ renderer, children }) => (
-  <CanvasContext.Provider value={{ renderer }}>
-    {children}
-  </CanvasContext.Provider>
-);
+const CanvasContext = createContext<CanvasContextType | null>(null);
+
+export function CanvasProvider({ 
+  children, 
+  renderer, 
+  addToRenderQueue,
+}: { 
+  children: React.ReactNode; 
+  renderer: WebGLRenderer;
+  addToRenderQueue: (renderFn: () => void) => void;
+}): JSX.Element {
+  return (
+    <CanvasContext.Provider value={{ renderer, addToRenderQueue }}>
+      {children}
+    </CanvasContext.Provider>
+  );
+}
 
 
-export function useRenderer(): WebGLRenderer | null {
-  const { renderer } = React.useContext(CanvasContext);
+export function useRenderer(): WebGLRenderer | undefined {
+  const context = useContext(CanvasContext);
+  return context?.renderer;
+}
 
-  return renderer;
+export function useAddToRenderQueue(): ((renderFn: () => void) => void) | undefined {
+  const context = useContext(CanvasContext);
+  return context?.addToRenderQueue;
 }

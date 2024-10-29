@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface CircleProps {
   x: number;
@@ -11,10 +11,16 @@ interface CircleProps {
 export function Circle(props: CircleProps): null {
   const { x, y, radius, color } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawCircle(x, y, radius, color);
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawCircle(x, y, radius, color);
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [x, y, radius, color, renderer]);
 

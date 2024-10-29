@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRenderer } from '../../context/CanvasContext';
+import { useAddToRenderQueue, useRenderer } from '../../context/CanvasContext';
 
 interface EllipseProps {
   x: number;
@@ -12,10 +12,16 @@ interface EllipseProps {
 export function Ellipse(props: EllipseProps): null {
   const { x, y, radiusX, radiusY, color } = props;
   const renderer = useRenderer();
+  const addToRenderQueue = useAddToRenderQueue();
 
   useEffect(() => {
-    if (renderer) {
-      renderer.drawEllipse(x, y, radiusX, radiusY, color);
+    if (renderer && addToRenderQueue) {
+      const renderFn = (): void => {
+        renderer.drawEllipse(x, y, radiusX, radiusY, color);
+      };
+      addToRenderQueue(renderFn);
+      renderer.addToRenderQueue(renderFn);
+      renderer.render();
     }
   }, [x, y, radiusX, radiusY, color, renderer]);
 
