@@ -528,4 +528,60 @@ export class WebGLRenderer {
       this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, i * 4, 4);
     }
   }
+
+  public drawTriangle(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    x3: number, y3: number,
+    strokeColor: [number, number, number, number],
+    fillColor: [number, number, number, number] | null = null,
+    thickness: number = 1,
+  ): void {
+    if (fillColor) {
+      const vertices = new Float32Array([
+        x1, y1,
+        x2, y2,
+        x3, y3,
+      ]);
+
+      const colors = new Float32Array([
+        ...fillColor, ...fillColor, ...fillColor,
+      ]);
+
+      const vertexBuffer = this.gl!.createBuffer();
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
+
+      const colorBuffer = this.gl!.createBuffer();
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.STATIC_DRAW);
+
+      const positionLocation = this.gl!.getAttribLocation(this.program!, 'a_position');
+      const colorLocation = this.gl!.getAttribLocation(this.program!, 'a_color');
+
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+      this.gl!.enableVertexAttribArray(positionLocation);
+      this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+      this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+      this.gl!.enableVertexAttribArray(colorLocation);
+      this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+      const projectionLocation = this.gl!.getUniformLocation(this.program!, 'u_projection');
+      const viewLocation = this.gl!.getUniformLocation(this.program!, 'u_view');
+
+      this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix!);
+      this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
+
+      this.gl!.drawArrays(this.gl!.TRIANGLES, 0, 3);
+    }
+
+    const points: PathPoint[] = [
+      { x: x1, y: y1, moveTo: true },
+      { x: x2, y: y2 },
+      { x: x3, y: y3 },
+    ];
+
+    this.drawPath(points, strokeColor, null, thickness, true);
+  }
 }
