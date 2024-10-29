@@ -310,4 +310,62 @@ export class WebGLRenderer {
 
     this.gl!.drawArrays(this.gl!.TRIANGLE_FAN, 0, segments + 2);
   }
+
+  public drawLine(x1: number, y1: number, x2: number, y2: number, color: [number, number, number, number], thickness: number = 2): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.sqrt(dx * dx + dy * dy);
+
+    const nx = -dy / length * (thickness / 2);
+    const ny = dx / length * (thickness / 2);
+
+    const vertices = new Float32Array([
+      x1 + nx, y1 + ny,
+      x1 - nx, y1 - ny,
+      x2 + nx, y2 + ny,
+      x2 - nx, y2 - ny,
+    ]);
+
+    const colors = new Float32Array([
+      ...color,
+      ...color,
+      ...color,
+      ...color,
+    ]);
+
+    const vertexBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.STATIC_DRAW);
+
+    const colorBuffer = this.gl!.createBuffer();
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.bufferData(this.gl!.ARRAY_BUFFER, colors, this.gl!.STATIC_DRAW);
+
+    if (!this.program) {
+      throw new Error('Program is not initialized');
+    }
+
+    const positionLocation = this.gl!.getAttribLocation(this.program, 'a_position');
+    const colorLocation = this.gl!.getAttribLocation(this.program, 'a_color');
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
+    this.gl!.enableVertexAttribArray(positionLocation);
+    this.gl!.vertexAttribPointer(positionLocation, 2, this.gl!.FLOAT, false, 0, 0);
+
+    this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, colorBuffer);
+    this.gl!.enableVertexAttribArray(colorLocation);
+    this.gl!.vertexAttribPointer(colorLocation, 4, this.gl!.FLOAT, false, 0, 0);
+
+    const projectionLocation = this.gl!.getUniformLocation(this.program, 'u_projection');
+    const viewLocation = this.gl!.getUniformLocation(this.program, 'u_view');
+
+    if (!this.projectionMatrix || !this.viewMatrix) {
+      throw new Error('Matrices are not initialized');
+    }
+
+    this.gl!.uniformMatrix4fv(projectionLocation, false, this.projectionMatrix);
+    this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix);
+
+    this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
+  }
 }
