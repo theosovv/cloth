@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@types/earcut": "^2.1.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "eslint": "^9.13.0",
@@ -26,6 +27,7 @@
     "typescript-eslint": "^8.11.0"
   },
   "dependencies": {
+    "earcut": "^3.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
