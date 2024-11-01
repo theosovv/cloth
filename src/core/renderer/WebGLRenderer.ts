@@ -1,5 +1,5 @@
 import earcut from 'earcut';
-import { PathPoint, TextMetrics } from '../../types';
+import { PathPoint, TextMetrics, Shape } from '../../types';
 
 interface Viewport {
   scale: number;
@@ -7,6 +7,10 @@ interface Viewport {
   y: number;
   width: number;
   height: number;
+}
+
+interface ShapeWithId extends Shape {
+  id: string;
 }
 
 export class WebGLRenderer {
@@ -22,7 +26,7 @@ export class WebGLRenderer {
     width: 0,
     height: 0,
   };
-  private renderQueue: (() => void)[] = [];
+  private renderQueue: ShapeWithId[] = [];
   private bufferCache: Map<string, WebGLBuffer> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -204,14 +208,30 @@ export class WebGLRenderer {
     });
   }
 
-  public addToRenderQueue(renderFn: () => void): void {
-    this.renderQueue.push(renderFn);
+  public addToRenderQueue(shape: Shape, id: string): void {
+    const shapeWithId = { ...shape, id };
+    const existingIndex = this.renderQueue.findIndex(s => s.id === id);
+    
+    if (existingIndex !== -1) {
+      this.renderQueue[existingIndex] = shapeWithId;
+    } else {
+      this.renderQueue.push(shapeWithId);
+    }
   }
 
   public render(): void {
-    for (const renderFn of this.renderQueue) {
-      renderFn();
+    this.clear();
+    for (const shape of this.renderQueue) {
+      shape.render();
     }
+  }
+
+  public getShapes(): Shape[] {
+    return this.renderQueue;
+  }
+
+  public clearRenderQueue(): void {
+    this.renderQueue = [];
   }
 
   public setViewport(x: number, y: number, width: number, height: number): void {
@@ -232,7 +252,6 @@ export class WebGLRenderer {
     const oldScale = this.viewport.scale;
     this.viewport.scale = scale;
 
-    // Корректировка позиции для сохранения центра масштабирования
     this.viewport.x -= (centerX - this.viewport.x) * (scale / oldScale - 1);
     this.viewport.y -= (centerY - this.viewport.y) * (scale / oldScale - 1);
 
@@ -660,7 +679,6 @@ export class WebGLRenderer {
       this.gl!.drawArrays(this.gl!.TRIANGLES, 0, 3);
     }
   
-    // Draw stroke
     const points: PathPoint[] = [
       { x: x1, y: y1, moveTo: true },
       { x: x2, y: y2 },
@@ -775,7 +793,6 @@ export class WebGLRenderer {
       this.gl!.drawArrays(this.gl!.TRIANGLES, 0, indices.length);
     }
 
-    // Draw stroke
     const strokeVertices: number[] = [];
     const strokeColors: number[] = [];
 
@@ -863,22 +880,19 @@ export class WebGLRenderer {
       throw new Error('Failed to get 2D context');
     }
   
-    // Set canvas size with padding for better text quality
     textContext.font = `${fontSize}px ${fontFamily}`;
     const metrics = textContext.measureText(text);
     const textWidth = Math.ceil(metrics.width);
     const textHeight = fontSize;
   
-    textCanvas.width = textWidth * 2;  // Double the size for better quality
+    textCanvas.width = textWidth * 2;
     textCanvas.height = textHeight * 2;
   
-    // Reset context after resize and set text properties
-    textContext.font = `${fontSize * 2}px ${fontFamily}`; // Double size for better quality
+    textContext.font = `${fontSize * 2}px ${fontFamily}`;
     textContext.textAlign = textAlign;
     textContext.textBaseline = baseline;
     textContext.fillStyle = `rgba(${color[0] * 255}, ${color[1] * 255}, ${color[2] * 255}, ${color[3]})`;
   
-    // Position calculation
     let xPos = 0;
     switch (textAlign) {
     case 'center':
@@ -901,11 +915,9 @@ export class WebGLRenderer {
   
     textContext.fillText(text, xPos, yPos);
   
-    // Use cached buffers for vertices and texture coordinates
     const vertexBuffer = this.getBuffer('textVertex');
     const texCoordBuffer = this.getBuffer('textTexCoord');
   
-    // Create and setup texture
     const texture = this.gl!.createTexture();
     this.gl!.activeTexture(this.gl!.TEXTURE0);
     this.gl!.bindTexture(this.gl!.TEXTURE_2D, texture);
@@ -924,7 +936,6 @@ export class WebGLRenderer {
     this.gl!.texParameteri(this.gl!.TEXTURE_2D, this.gl!.TEXTURE_WRAP_S, this.gl!.CLAMP_TO_EDGE);
     this.gl!.texParameteri(this.gl!.TEXTURE_2D, this.gl!.TEXTURE_WRAP_T, this.gl!.CLAMP_TO_EDGE);
   
-    // Setup vertices and texture coordinates
     const vertices = new Float32Array([
       x, y,
       x + textWidth, y,
@@ -941,14 +952,12 @@ export class WebGLRenderer {
   
     this.gl!.useProgram(this.textProgram!);
   
-    // Update buffers
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, vertexBuffer);
     this.gl!.bufferData(this.gl!.ARRAY_BUFFER, vertices, this.gl!.DYNAMIC_DRAW);
   
     this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, texCoordBuffer);
     this.gl!.bufferData(this.gl!.ARRAY_BUFFER, texCoords, this.gl!.DYNAMIC_DRAW);
   
-    // Set attributes and uniforms
     const positionLocation = this.gl!.getAttribLocation(this.textProgram!, 'a_position');
     const texCoordLocation = this.gl!.getAttribLocation(this.textProgram!, 'a_texCoord');
   
@@ -968,14 +977,11 @@ export class WebGLRenderer {
     this.gl!.uniformMatrix4fv(viewLocation, false, this.viewMatrix!);
     this.gl!.uniform1i(textureLocation, 0);
   
-    // Draw
     this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
   
-    // Cleanup
     this.gl!.bindTexture(this.gl!.TEXTURE_2D, null);
     this.gl!.deleteTexture(texture);
   
-    // Return to main program
     this.gl!.useProgram(this.program!);
   
     return {

@@ -1,105 +1,111 @@
-import React from 'react';
+/* eslint-disable react/display-name */
+import React, { useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Canvas, Polygon, Text, Rectangle, Circle, Line, Ellipse, Triangle, Path } from '../src';
+import { Canvas, Rectangle, Circle, Ellipse, Triangle, Path, Line, Polygon, Text } from '../src';
+import { DragE } from '../src/types';
 
 const container = document.getElementById('app');
 const root = createRoot(container!);
 
-root.render(
-  <React.StrictMode>
-    <Canvas width={window.innerWidth} height={window.innerHeight}>
-      <Polygon 
-        points={[
-          { x: 100, y: 100 },
-          { x: 200, y: 50 },
-          { x: 300, y: 100 },
-          { x: 300, y: 200 },
-          { x: 200, y: 250 },
-          { x: 100, y: 200 },
-        ]}
-        strokeColor={[0, 0, 0, 1]}
-        fillColor={[0, 0.5, 1, 0.5]}
-        thickness={2}
-      />
-      <Text 
-        text="JSтред"
-        x={100}
-        y={100}
-        color={[0, 0, 0, 1]}
-        fontSize={24}
-        fontFamily="Arial"
-        textAlign="center"
-        baseline="middle"
-      />
-      <Rectangle
-        x={400}
-        y={100}
-        width={100}
-        height={80}
-        color={[1, 0, 0, 0.5]}
-      />
-      <Circle
-        x={600}
-        y={150}
-        radius={40}
-        color={[0, 1, 0, 0.5]}
-      />
-      <Line
-        x1={700}
-        y1={100}
-        x2={800}
-        y2={200}
-        color={[0, 0, 1, 1]}
-        thickness={3}
-      />
-      <Ellipse
-        x={500}
-        y={300}
-        radiusX={80}
-        radiusY={40}
-        color={[1, 0, 1, 0.5]}
-      />
-      <Triangle
-        x1={700}
-        y1={300}
-        x2={800}
-        y2={300}
-        x3={750}
-        y3={400}
-        strokeColor={[0, 0, 0, 1]}
-        fillColor={[1, 1, 0, 0.5]}
-        thickness={2}
-      />
-      <Path
-        points={[
-          { x: 50, y: 50, moveTo: true },
-          { x: 100, y: 25 },
-          { x: 150, y: 50 },
-          { x: 150, y: 100 },
-          { x: 100, y: 125 },
-          { x: 50, y: 100 },
-          { x: 50, y: 50 },
-          { x: 75, y: 75, moveTo: true },
-          { x: 125, y: 75 },
-          { x: 100, y: 100 },
-        ]}
-        strokeColor={[0.5, 0.2, 0.8, 1]}
-        fillColor={[0.5, 0.2, 0.8, 0.3]}
-        thickness={2}
-        closed={true}
-      />
-      <Path
-        points={[
-          { x: 200, y: 400, moveTo: true },
-          { x: 250, y: 350 },
-          { x: 300, y: 450 },
-          { x: 350, y: 350 },
-          { x: 400, y: 400 },
-        ]}
-        strokeColor={[0.8, 0.4, 0, 1]}
-        thickness={3}
-        closed={false}
-      />
-    </Canvas>
-  </React.StrictMode>,
-);
+function App(): JSX.Element {
+  const [position, setPosition] = useState({ x: 100, y: 100 });
+
+  const handleDrag = useCallback((dx: number, dy: number) => {
+    setPosition((prevPosition) => ({
+      x: prevPosition.x + dx,
+      y: prevPosition.y + dy,
+    }));
+  }, []);
+
+  return (
+    <React.StrictMode>
+      <Canvas width={window.innerWidth} height={window.innerHeight}>
+        <Circle
+          x={200}
+          y={200}
+          radius={50}
+          color={[1, 0, 0, 1]}
+        />
+        <Ellipse
+          x={300}
+          y={300}
+          radiusX={100}
+          radiusY={50}
+          color={[0, 1, 0, 1]}
+        />
+        <Line
+          x={400}
+          y={400}
+          points={{x1: 100, y1: 100, x2: 200, y2: 200}}
+          color={[0, 0, 1, 1]}
+          thickness={5}
+        />
+        <Path
+          x={500}
+          y={500}
+          points={[
+            { x: 0, y: 0, moveTo: true },
+            { x: 20, y: 20 },
+            { x: 40, y: 0 },
+            { x: 20, y: -20 },
+          ]}
+          strokeColor={[1, 1, 0, 1]}
+          fillColor={[0, 1, 1, 1]}
+          thickness={10}
+          closed
+        />
+        <Polygon
+          x={600}
+          y={600}
+          points={[
+            { x: 0, y: -50 },
+            { x: 15, y: -15 },
+            { x: 50, y: -15 },
+            { x: 20, y: 10 },
+            { x: 30, y: 45 },
+            { x: 0, y: 25 },
+            { x: -30, y: 45 },
+            { x: -20, y: 10 },
+            { x: -50, y: -15 },
+            { x: -15, y: -15 },
+          ]}
+          strokeColor={[0, 0, 0, 1]}
+          fillColor={[1, 0.8, 0, 1]}
+          thickness={3}
+        />
+        <Rectangle
+          x={700}
+          y={700}
+          width={100}
+          height={200}
+          color={[0, 1, 0, 1]}
+        />
+        <Text
+          x={800}
+          y={800}
+          text="Hello, world!"
+          fontSize={24}
+          color={[0, 0, 0, 1]}
+        />
+        <Triangle
+          x={position.x}
+          y={position.y}
+          points={{
+            x1: 40, y1: 40,
+            x2: -40, y2: 40,
+            x3: 0, y3: -40,
+          }}
+          strokeColor={[0, 0, 1, 1]}
+          fillColor={[1, 0, 1, 1]}
+          thickness={3}
+          isDraggable
+          onDrag={(e: DragE) => {
+            handleDrag(e.worldDx, e.worldDy);
+          }}
+        />
+      </Canvas>
+    </React.StrictMode>
+  );
+}
+
+root.render(<App />);

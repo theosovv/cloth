@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WebGLRenderer } from '../../core/renderer';
 import { CanvasProvider } from '../../context/CanvasContext';
+import { DragManager } from '../../core/renderer/DragManager';
 
 interface CanvasProps {
   width: number;
@@ -12,12 +13,14 @@ export function Canvas(props: CanvasProps): JSX.Element {
   const { width, height, children } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [renderer, setRenderer] = useState<WebGLRenderer | null>(null);
+  const [dragManager, setDragManager] = useState<DragManager | null>(null);
   const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const renderQueueRef = useRef<(() => void)[]>([]);
   const [fps, setFps] = useState(0);
   const frameTimestamps = useRef<number[]>([]);
 
+  
   const updateFPS = (): void => {
     const now = performance.now();
     const timestamps = frameTimestamps.current;
@@ -46,6 +49,9 @@ export function Canvas(props: CanvasProps): JSX.Element {
       newRenderer.clear();
       newRenderer.render();
       setRenderer(newRenderer);
+
+      const dragManager = new DragManager(newRenderer);
+      setDragManager(dragManager);
     }
   }, []);
 
@@ -83,6 +89,14 @@ export function Canvas(props: CanvasProps): JSX.Element {
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>): void => {
     if (e.button === 0) {
+      const shapes = renderer?.getShapes() ?? [];
+      for (const shape of shapes) {
+        if (dragManager?.hitTest(e.clientX, e.clientY, shape)) {
+          dragManager?.startDrag(e.nativeEvent, shape);
+          return;
+        }
+      }
+
       setIsDragging(true);
 
       if (canvasRef.current) {
@@ -91,7 +105,9 @@ export function Canvas(props: CanvasProps): JSX.Element {
     }
   };
 
-  const handleMouseUp = (): void => {
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>): void => {
+    dragManager?.endDrag(e.nativeEvent);
+
     setIsDragging(false);
     if (canvasRef.current) {
       canvasRef.current.style.cursor = 'grab';
@@ -99,12 +115,17 @@ export function Canvas(props: CanvasProps): JSX.Element {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>): void => {
-    if (!isDragging || !renderer) return;
-    
-    renderer.pan(e.movementX, e.movementY);
-    requestAnimationFrame(() => {
-      renderer.render();
-    });
+    if (dragManager?.isDragging) {
+      dragManager.drag(e.nativeEvent);
+      requestAnimationFrame(() => {
+        renderer?.render();
+      });
+    } else if (isDragging && renderer) {
+      renderer.pan(e.movementX, e.movementY);
+      requestAnimationFrame(() => {
+        renderer.render();
+      });
+    }
   };
 
   return (
