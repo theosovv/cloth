@@ -1,5 +1,7 @@
 import { WebGLRenderer } from './WebGLRenderer';
 import { Shape } from '../../types';
+import { SelectionManager } from './SelectionManager';
+import { getCanvasRelativePosition } from '../../utils/getCanvasRelativePosition';
 
 export class DragManager {
   public isDragging = false;
@@ -7,7 +9,10 @@ export class DragManager {
   private lastY = 0;
   private dragTarget: Shape | null = null;
 
-  constructor(private renderer: WebGLRenderer) {}
+  constructor(
+    private renderer: WebGLRenderer,
+    private selectionManager: SelectionManager
+  ) {}
 
   public hitTest(x: number, y: number, shape: Shape): boolean {
     if (!shape.props.isDraggable) return false;
@@ -17,54 +22,76 @@ export class DragManager {
 
   public startDrag(e: MouseEvent, target: Shape): void {
     this.isDragging = true;
-    this.lastX = e.clientX;
-    this.lastY = e.clientY;
     this.dragTarget = target;
 
-    const worldPos = this.renderer.screenToWorld(e.clientX, e.clientY);
-    target.props.onDragStart?.({
-      x: e.clientX,
-      y: e.clientY,
-      dx: 0,
-      dy: 0,
-      worldX: worldPos.x,
-      worldY: worldPos.y,
-      worldDx: 0,
-      worldDy: 0,
+    const { x: canvasX, y: canvasY } = getCanvasRelativePosition(
+      this.renderer.canvas,
+      e.clientX,
+      e.clientY
+    );
+
+    const worldPos = this.renderer.screenToWorld(canvasX, canvasY);
+
+    this.lastX = canvasX;
+    this.lastY = canvasY;
+
+    const selectedShapes = this.selectionManager.getSelectedShapes();
+
+    if (!Array.from(selectedShapes).some((s) => s.id === target.id)) {
+      this.selectionManager.addToSelection(target);
+    }
+
+    selectedShapes.forEach((shape) => {
+      shape.props.onDragStart?.({
+        x: canvasY,
+        y: canvasY,
+        dx: 0,
+        dy: 0,
+        worldX: worldPos.x,
+        worldY: worldPos.y,
+        worldDx: 0,
+        worldDy: 0,
+      });
     });
   }
 
   public drag(e: MouseEvent): void {
     if (!this.isDragging || !this.dragTarget) return;
+    const { x: canvasX, y: canvasY } = getCanvasRelativePosition(
+      this.renderer.canvas,
+      e.clientX,
+      e.clientY
+    );
+    const scale = this.renderer.viewport.scale;
+    const dx = (canvasX - this.lastX) / scale;
+    const dy = (canvasY - this.lastY) / scale;
 
-    const worldPos = this.renderer.screenToWorld(e.clientX, e.clientY);
-    const lastWorldPos = this.renderer.screenToWorld(this.lastX, this.lastY);
-    
-    this.renderer.clear();
-    
-    this.dragTarget.props.onDrag?.({
-      x: e.clientX,
-      y: e.clientY,
-      dx: e.clientX - this.lastX,
-      dy: e.clientY - this.lastY,
-      worldX: worldPos.x,
-      worldY: worldPos.y,
-      worldDx: worldPos.x - lastWorldPos.x,
-      worldDy: worldPos.y - lastWorldPos.y,
-    });
+    const selectedShapes = this.selectionManager.getSelectedShapes();
 
-    this.lastX = e.clientX;
-    this.lastY = e.clientY;
+    if (Array.from(selectedShapes).some((s) => s.id === this.dragTarget?.id)) {
+      selectedShapes.forEach((shape) => {
+        shape.move(dx, dy);
+      });
+    }
+    this.lastX = canvasX;
+    this.lastY = canvasY;
+
+    this.renderer.render();
   }
 
   public endDrag(e: MouseEvent): void {
     if (!this.isDragging || !this.dragTarget) return;
+    const { x: canvasX, y: canvasY } = getCanvasRelativePosition(
+      this.renderer.canvas,
+      e.clientX,
+      e.clientY
+    );
+    const worldPos = this.renderer.screenToWorld(canvasX, canvasY);
 
-    const worldPos = this.renderer.screenToWorld(e.clientX, e.clientY);
-
+    // Обновляем координаты всех выделенных фигур
     this.dragTarget.props.onDragEnd?.({
-      x: e.clientX,
-      y: e.clientY,
+      x: canvasX,
+      y: canvasY,
       dx: 0,
       dy: 0,
       worldX: worldPos.x,
@@ -75,5 +102,7 @@ export class DragManager {
 
     this.isDragging = false;
     this.dragTarget = null;
+    this.lastX = 0;
+    this.lastY = 0;
   }
 }

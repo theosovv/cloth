@@ -20,7 +20,16 @@ export interface DragE {
   worldDy: number;
 }
 
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface Shape {
+  id: string;
+  isSelected?: boolean;
   props: {
     isDraggable?: boolean;
     onDragStart?: (e: DragE) => void;
@@ -29,4 +38,10 @@ export interface Shape {
   };
   render: () => void;
   hitTest: (x: number, y: number) => boolean;
+  getBounds: () => Bounds;
+  move: (dx: number, dy: number) => void;
+}
+
+export interface ShapeWithId extends Shape {
+  id: string;
 }
