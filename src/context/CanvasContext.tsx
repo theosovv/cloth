@@ -3,34 +3,33 @@ import { WebGLRenderer } from '../core/renderer';
 
 interface CanvasContextType {
   renderer: WebGLRenderer;
-  addToRenderQueue: (renderFn: () => void) => void;
+  selectedShapes: Set<string>;
 }
 
 const CanvasContext = createContext<CanvasContextType | null>(null);
 
-export function CanvasProvider({ 
-  children, 
-  renderer, 
-  addToRenderQueue,
-}: { 
-  children: React.ReactNode; 
+export function CanvasProvider({
+  children,
+  renderer,
+  selectedShapes,
+}: {
+  children: React.ReactNode;
   renderer: WebGLRenderer;
-  addToRenderQueue: (renderFn: () => void) => void;
+  selectedShapes: Set<string>;
 }): JSX.Element {
   return (
-    <CanvasContext.Provider value={{ renderer, addToRenderQueue }}>
+    <CanvasContext.Provider value={{ renderer, selectedShapes }}>
       {children}
     </CanvasContext.Provider>
   );
 }
-
 
 export function useRenderer(): WebGLRenderer | undefined {
   const context = useContext(CanvasContext);
   return context?.renderer;
 }
 
-export function useAddToRenderQueue(): ((renderFn: () => void) => void) | undefined {
+export function useSelectedShapes(): Set<string> | undefined {
   const context = useContext(CanvasContext);
-  return context?.addToRenderQueue;
+  return context?.selectedShapes;
 }
