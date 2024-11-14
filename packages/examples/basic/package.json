@@ -1,0 +1,17 @@
+{
+  "name": "@cloth/example-basic",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@cloth/bindings": "file:../../bindings/dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-wasm": "^3.3.0"
+  }
+}

@@ -1,4 +1,4 @@
-import cloth from 'cloth-core';
+import * as cloth from 'cloth-core';
 
 export class Cloth {
   private renderer: cloth.Renderer;
