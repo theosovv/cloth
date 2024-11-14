@@ -8,6 +8,9 @@
     "build": "tsc",
     "dev": "tsc --watch"
   },
+  "dependencies": {
+    "cloth-core": "file:../core/pkg"
+  },
   "devDependencies": {
     "typescript": "^5.6.3"
   }

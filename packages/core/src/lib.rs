@@ -1,14 +1,24 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub struct Renderer {
+    context: web_sys::WebGl2RenderingContext,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[wasm_bindgen]
+impl Renderer {
+    #[wasm_bindgen(constructor)]
+    pub fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Renderer, JsValue> {
+        let context = canvas
+            .get_context("webgl2")?
+            .unwrap()
+            .dyn_into::<web_sys::WebGl2RenderingContext>()?;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        Ok(Renderer { context })
+    }
+
+    pub fn clear(&self) {
+        self.context.clear_color(0.0, 0.0, 0.0, 1.0);
+        self.context.clear(web_sys::WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 }
