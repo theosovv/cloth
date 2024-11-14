@@ -1,1 +1,0 @@
-export { Ellipse } from './Ellipse';

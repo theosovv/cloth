@@ -1,1 +1,0 @@
-export { Polygon } from './Polygon';
